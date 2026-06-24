@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Deck That Built Itself</title>
+
+<!-- ===========================================
+     FONTS — distinctive, non-default choices
+     Zodiak  : contrasty modern serif (display drama)
+     Supreme : grotesque sans (body / UI)
+     Space Mono : real terminal + label chrome
+     =========================================== -->
+<link rel="preconnect" href="https://api.fontshare.com">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=zodiak@400,401,700,800,900&f[]=supreme@400,500,700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap">
+
+<style>
+/* ===========================================
+   CSS CUSTOM PROPERTIES (THEME)
+   Warm coral SIGNAL on cold INK. Edit here to retune.
+   =========================================== */
+:root{
+    --ink:        #0a0c12;   /* cold near-black base */
+    --ink-2:      #0e111a;   /* lifted panels */
+    --ink-3:      #141925;   /* cards / terminal body */
+    --line:       #232a39;   /* hairlines */
+    --paper:      #f3ede1;   /* warm off-white text */
+    --muted:      #8a90a0;   /* secondary text */
+    --faint:      #3a4150;   /* ghost numerals / decoration */
+    --signal:     #ff6f45;   /* coral — the one dominant accent */
+    --signal-2:   #ffb347;   /* amber, signal's warmer sibling */
+    --mint:       #74e3c8;   /* cold counter-accent (sparingly) */
+    --signal-glow: rgba(255,111,69,0.35);
+
+    --stage-bg:  #06080d;    /* letterbox bars */
+    --slide-bg:  var(--ink);
+
+    --font-display:'Zodiak', Georgia, serif;
+    --font-body:  'Supreme', system-ui, sans-serif;
+    --font-mono:  'Space Mono', ui-monospace, monospace;
+
+    --ease: cubic-bezier(0.16,1,0.3,1);
+    --dur: 0.85s;
+}
+
+*{ margin:0; padding:0; box-sizing:border-box; }
+
+/* ===========================================
+   FIXED 16:9 STAGE — viewport-base.css (FULL, mandatory)
+   Slides authored at 1920x1080, scaled as a whole.
+   =========================================== */
+html,body{ width:100%; height:100%; margin:0; overflow:hidden; background:var(--stage-bg,#000); }
+.deck-viewport{ position:fixed; inset:0; overflow:hidden; background:var(--stage-bg,#000); }
+.deck-stage{
+    position:absolute; left:0; top:0; width:1920px; height:1080px;
+    overflow:hidden; transform-origin:0 0; background:var(--slide-bg,#fff);
+}
+.slide{
+    position:absolute; inset:0; width:1920px; height:1080px; overflow:hidden;
+    display:block; visibility:hidden; opacity:0; pointer-events:none;
+    background:var(--slide-bg,#fff);
+}
+.slide.active,.slide.visible{ visibility:visible; opacity:1; pointer-events:auto; z-index:1; }
+img,video,canvas,svg{ max-width:100%; max-height:100%; }
+.deck-controls{ position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:1000; }
+@media print{
+    html,body{ width:1920px; height:auto; overflow:visible; background:#fff; }
+    .deck-viewport{ position:static; overflow:visible; background:#fff; }
+    .deck-stage{ position:static; width:auto; height:auto; transform:none !important; background:none; }
+    .slide{ position:relative; display:block !important; visibility:visible !important; opacity:1 !important;
+        pointer-events:auto !important; width:1920px; height:1080px; break-after:page; page-break-after:always; }
+    .slide:last-child{ break-after:auto; page-break-after:auto; }
+    .deck-controls{ display:none !important; }
+}
+@media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{ animation-duration:0.01ms !important; transition-duration:0.2s !important;
+        animation-iteration-count:1 !important; }
+}
+
+/* ===========================================
+   STAGE ATMOSPHERE — layered light + grid + grain
+   =========================================== */
+.deck-stage{
+    font-family:var(--font-body);
+    color:var(--paper);
+    background:
+        radial-gradient(ellipse 60% 50% at 12% 8%,  rgba(255,111,69,0.13) 0%, transparent 60%),
+        radial-gradient(ellipse 55% 60% at 92% 96%, rgba(116,227,200,0.07) 0%, transparent 60%),
+        var(--ink);
+}
+.deck-stage::before{   /* fine mono grid */
+    content:""; position:absolute; inset:0; pointer-events:none; z-index:0;
+    background-image:
+        linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+    background-size:64px 64px;
+    mask-image:radial-gradient(ellipse 90% 90% at 50% 50%, #000 35%, transparent 100%);
+}
+.deck-stage::after{    /* subtle grain */
+    content:""; position:absolute; inset:0; pointer-events:none; z-index:0; opacity:0.05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ===========================================
+   SLIDE LAYOUT PRIMITIVES
+   .wrap = padded flex layer over each fixed slide
+   =========================================== */
+.wrap{
+    position:absolute; inset:0; z-index:2;
+    display:flex; flex-direction:column; justify-content:center;
+    padding:120px 150px;
+}
+.wrap.center{ align-items:center; text-align:center; }
+
+/* Kicker label — mono, bracketed, signal */
+.kicker{
+    font-family:var(--font-mono); font-size:22px; letter-spacing:0.32em;
+    text-transform:uppercase; color:var(--signal);
+    display:inline-flex; align-items:center; gap:18px; margin-bottom:40px;
+}
+.kicker::before{ content:""; width:54px; height:2px; background:var(--signal); display:inline-block; }
+.kicker.bare::before{ display:none; }
+
+/* Headlines */
+h1.title{ font-family:var(--font-display); font-weight:900; font-size:170px; line-height:0.92;
+    letter-spacing:-0.025em; color:var(--paper); }
+h2.head{ font-family:var(--font-display); font-weight:800; font-size:104px; line-height:0.98;
+    letter-spacing:-0.02em; color:var(--paper); }
+h2.head em{ font-style:italic; font-weight:401; color:var(--signal); }
+.statement{ font-family:var(--font-display); font-weight:700; font-size:96px; line-height:1.04;
+    letter-spacing:-0.02em; max-width:1400px; }
+.statement .hl{ color:var(--signal); font-style:italic; font-weight:401; }
+.statement .hl2{ color:var(--mint); font-style:italic; font-weight:401; }
+
+.lead{ font-family:var(--font-body); font-weight:400; font-size:34px; line-height:1.5;
+    color:var(--muted); max-width:1080px; }
+.lead strong{ color:var(--paper); font-weight:500; }
+
+/* Ghost index numeral behind step slides */
+.bignum{
+    position:absolute; right:90px; top:40px; z-index:1;
+    font-family:var(--font-display); font-weight:900; font-size:680px; line-height:1;
+    color:transparent; -webkit-text-stroke:2px var(--faint); opacity:0.55;
+    pointer-events:none; user-select:none;
+}
+
+/* ===========================================
+   TERMINAL CARD — the recurring motif
+   =========================================== */
+.term{
+    background:linear-gradient(180deg, var(--ink-3), #11151f);
+    border:1px solid var(--line); border-radius:16px;
+    box-shadow:0 40px 90px -30px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.04);
+    overflow:hidden; max-width:1320px; width:100%;
+}
+.term-bar{
+    display:flex; align-items:center; gap:12px; padding:20px 26px;
+    background:rgba(255,255,255,0.02); border-bottom:1px solid var(--line);
+}
+.term-bar .dot{ width:15px; height:15px; border-radius:50%; }
+.term-bar .dot.r{ background:#ff5f57; } .term-bar .dot.y{ background:#febc2e; } .term-bar .dot.g{ background:#28c840; }
+.term-bar .tt{ font-family:var(--font-mono); font-size:18px; color:var(--muted); margin-left:14px; letter-spacing:0.04em; }
+.term-body{ padding:40px 44px; font-family:var(--font-mono); font-size:30px; line-height:1.7; }
+.term-body .ln{ white-space:pre-wrap; }
+.prompt{ color:var(--signal); } .flag{ color:var(--signal-2); } .path{ color:var(--mint); }
+.cmt{ color:var(--muted); } .ok{ color:var(--mint); } .dim{ color:var(--muted); }
+.cursor{ display:inline-block; width:16px; height:34px; background:var(--signal); vertical-align:-5px;
+    margin-left:6px; animation:blink 1.05s steps(1) infinite; }
+@keyframes blink{ 50%{ opacity:0; } }
+
+/* chat-style prompt bubble (invoke slide) */
+.chat{ max-width:1240px; width:100%; background:var(--ink-3); border:1px solid var(--line);
+    border-left:4px solid var(--signal); border-radius:14px; padding:38px 46px; }
+.chat .who{ font-family:var(--font-mono); font-size:20px; letter-spacing:0.18em; text-transform:uppercase;
+    color:var(--muted); margin-bottom:18px; }
+.chat .msg{ font-family:var(--font-body); font-size:42px; line-height:1.34; color:var(--paper); }
+.chat .msg b{ color:var(--signal); font-weight:700; }
+
+.note{ font-family:var(--font-mono); font-size:23px; color:var(--muted); margin-top:42px; letter-spacing:0.02em; }
+.note .pin{ color:var(--signal); }
+
+/* ===========================================
+   WORKFLOW STRIP (the spine slide)
+   =========================================== */
+.flow{ display:flex; align-items:stretch; gap:0; width:100%; max-width:1620px; }
+.flow .step{ flex:1; padding:42px 36px; position:relative; }
+.flow .step + .step{ border-left:1px solid var(--line); }
+.flow .n{ font-family:var(--font-mono); font-size:22px; color:var(--signal); letter-spacing:0.1em; }
+.flow .t{ font-family:var(--font-display); font-weight:800; font-size:52px; margin:18px 0 16px; letter-spacing:-0.01em; }
+.flow .d{ font-size:25px; line-height:1.46; color:var(--muted); }
+.flow .arrow{ position:absolute; right:-13px; top:54px; color:var(--signal); font-family:var(--font-mono);
+    font-size:30px; z-index:3; background:var(--ink); padding:2px 0; }
+
+/* swatch trio (show-don't-tell slide) */
+.swatches{ display:flex; gap:40px; margin-top:20px; }
+.sw{ width:360px; height:240px; border-radius:14px; border:1px solid var(--line); position:relative;
+    overflow:hidden; box-shadow:0 30px 60px -30px rgba(0,0,0,0.7); }
+.sw .lab{ position:absolute; left:22px; bottom:18px; font-family:var(--font-mono); font-size:20px;
+    letter-spacing:0.12em; }
+.sw1{ background:radial-gradient(circle at 70% 20%, #ff6f45, #2a0f0a); }
+.sw1 .lab{ color:#ffd9cc; }
+.sw2{ background:linear-gradient(135deg,#0d1f1b,#74e3c8 240%); }
+.sw2 .lab{ color:#bff3e7; }
+.sw3{ background:repeating-linear-gradient(45deg,#15151c 0 22px,#1c1c26 22px 44px); }
+.sw3 .lab{ color:#cfd2dd; }
+.sw .pick{ position:absolute; top:16px; right:18px; font-family:var(--font-mono); font-size:30px; color:#fff; opacity:0; }
+.sw.chosen{ border-color:var(--signal); box-shadow:0 0 0 3px var(--signal-glow),0 30px 60px -30px rgba(0,0,0,0.7); }
+.sw.chosen .pick{ opacity:1; color:var(--signal); }
+
+/* big pull quote */
+.quote{ font-family:var(--font-display); font-weight:401; font-style:italic; font-size:74px; line-height:1.22;
+    letter-spacing:-0.01em; max-width:1500px; color:var(--paper); }
+.quote .k{ font-style:normal; font-weight:800; color:var(--signal); }
+.qmark{ font-family:var(--font-display); font-weight:900; font-size:200px; color:var(--faint);
+    line-height:0.5; height:90px; display:block; }
+.qby{ font-family:var(--font-mono); font-size:24px; color:var(--muted); margin-top:46px; letter-spacing:0.1em; }
+
+/* ===========================================
+   RECURSION RING — title + meta-loop motif
+   =========================================== */
+.ring-wrap{ position:relative; width:560px; height:560px; flex:0 0 auto; }
+.ring{ position:absolute; inset:0; border-radius:50%;
+    background:conic-gradient(from 0deg, transparent 0deg, var(--signal) 90deg, var(--signal-2) 170deg, transparent 250deg, transparent 360deg);
+    -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 14px), #000 calc(100% - 13px));
+            mask:radial-gradient(farthest-side, transparent calc(100% - 14px), #000 calc(100% - 13px));
+    animation:spin 14s linear infinite; filter:drop-shadow(0 0 24px var(--signal-glow)); }
+.ring.r2{ inset:70px; animation-duration:22s; animation-direction:reverse; opacity:0.7;
+    background:conic-gradient(from 120deg, transparent 0deg, var(--mint) 70deg, transparent 200deg); filter:none; }
+.ring.r3{ inset:150px; animation-duration:30s; opacity:0.5;
+    background:conic-gradient(from 220deg, transparent 0deg, var(--signal-2) 60deg, transparent 180deg); }
+@keyframes spin{ to{ transform:rotate(360deg); } }
+.ring-core{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    flex-direction:column; text-align:center; }
+.ring-core .glyph{ font-family:var(--font-mono); font-size:90px; color:var(--signal); line-height:1; }
+.ring-core .sub{ font-family:var(--font-mono); font-size:19px; color:var(--muted); letter-spacing:0.2em;
+    margin-top:16px; text-transform:uppercase; }
+
+/* meta-loop diagram nodes */
+.loop{ position:relative; width:920px; height:560px; }
+.loop .node{ position:absolute; width:300px; padding:30px 30px; border:1px solid var(--line);
+    border-radius:14px; background:var(--ink-3); text-align:center; }
+.loop .node .nh{ font-family:var(--font-display); font-weight:800; font-size:40px; }
+.loop .node .ns{ font-family:var(--font-mono); font-size:19px; color:var(--muted); margin-top:8px; letter-spacing:0.05em; }
+.loop .nA{ left:0; top:40px; border-color:var(--signal); }
+.loop .nB{ right:0; top:40px; }
+.loop .nC{ left:50%; transform:translateX(-50%); bottom:30px; border-color:var(--mint); }
+.loop svg{ position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+.loop .edge{ fill:none; stroke:var(--signal); stroke-width:2.5; stroke-dasharray:9 9; opacity:0.8;
+    animation:dash 1.4s linear infinite; }
+@keyframes dash{ to{ stroke-dashoffset:-36; } }
+.loop .arrowhead{ fill:var(--signal); }
+
+/* ===========================================
+   ENTRANCE ANIMATIONS (trigger on .visible)
+   =========================================== */
+.reveal{ opacity:0; transform:translateY(38px); filter:blur(6px);
+    transition:opacity var(--dur) var(--ease), transform var(--dur) var(--ease), filter var(--dur) var(--ease);
+    transition-delay:var(--d,0s); }
+.slide.visible .reveal{ opacity:1; transform:none; filter:none; }
+.reveal-l{ opacity:0; transform:translateX(-48px);
+    transition:opacity var(--dur) var(--ease), transform var(--dur) var(--ease); transition-delay:var(--d,0s); }
+.slide.visible .reveal-l{ opacity:1; transform:none; }
+.reveal-s{ opacity:0; transform:scale(0.86);
+    transition:opacity var(--dur) var(--ease), transform var(--dur) var(--ease); transition-delay:var(--d,0s); }
+.slide.visible .reveal-s{ opacity:1; transform:none; }
+
+/* click-to-reveal easter egg */
+.spoiler{ color:var(--mint); cursor:pointer; }
+.spoiler .hidden{ display:inline-block; max-width:0; overflow:hidden; white-space:nowrap; vertical-align:bottom;
+    opacity:0; transition:max-width 0.7s var(--ease), opacity 0.7s var(--ease); }
+.spoiler.open .hidden{ max-width:900px; opacity:1; }
+.spoiler .tap{ font-family:var(--font-mono); font-size:0.42em; color:var(--muted); letter-spacing:0.1em; }
+.spoiler.open .tap{ display:none; }
+
+/* ===========================================
+   DECK CHROME — outside the stage (progress, dots, counter)
+   =========================================== */
+.progress{ position:fixed; top:0; left:0; height:4px; width:0; background:linear-gradient(90deg,var(--signal),var(--signal-2));
+    z-index:1200; box-shadow:0 0 14px var(--signal-glow); transition:width 0.5s var(--ease); }
+.counter{ position:fixed; right:34px; bottom:30px; z-index:1200; font-family:var(--font-mono);
+    font-size:20px; color:var(--muted); letter-spacing:0.12em; }
+.counter b{ color:var(--paper); }
+.nav-dots{ position:fixed; left:34px; top:50%; transform:translateY(-50%); z-index:1200;
+    display:flex; flex-direction:column; gap:14px; }
+.nav-dots .dt{ position:relative; width:11px; height:11px; border-radius:50%; border:1px solid var(--muted);
+    cursor:pointer; transition:all 0.3s var(--ease); }
+.nav-dots .dt.on{ background:var(--signal); border-color:var(--signal); box-shadow:0 0 12px var(--signal-glow); }
+.nav-dots .dt .lbl{ position:absolute; left:24px; top:50%; transform:translateY(-50%) translateX(-6px);
+    white-space:nowrap; font-family:var(--font-mono); font-size:16px; color:var(--paper);
+    background:var(--ink-3); border:1px solid var(--line); padding:5px 12px; border-radius:6px;
+    opacity:0; pointer-events:none; transition:all 0.25s var(--ease); letter-spacing:0.04em; }
+.nav-dots .dt:hover .lbl{ opacity:1; transform:translateY(-50%); }
+
+/* laser-pointer cursor */
+.laser{ position:fixed; width:26px; height:26px; border-radius:50%; pointer-events:none; z-index:1500;
+    transform:translate(-50%,-50%); mix-blend-mode:screen;
+    background:radial-gradient(circle, rgba(255,111,69,0.9) 0%, rgba(255,111,69,0.35) 35%, transparent 70%);
+    transition:opacity 0.3s; opacity:0; }
+
+/* inline edit affordance */
+.edit-hotzone{ position:fixed; top:0; left:0; width:80px; height:80px; z-index:10000; }
+.edit-toggle{ position:fixed; top:22px; left:22px; z-index:10001; width:50px; height:50px; border-radius:12px;
+    border:1px solid var(--line); background:var(--ink-3); color:var(--paper); font-size:22px; cursor:pointer;
+    opacity:0; pointer-events:none; transition:opacity 0.3s ease; }
+.edit-toggle.show,.edit-toggle.active{ opacity:1; pointer-events:auto; }
+.edit-toggle.active{ border-color:var(--signal); color:var(--signal); }
+body.editing [contenteditable]{ outline:1px dashed var(--signal); outline-offset:6px; border-radius:3px; }
+.edit-hint{ position:fixed; top:26px; left:84px; z-index:10001; font-family:var(--font-mono); font-size:15px;
+    color:var(--muted); opacity:0; transition:opacity 0.3s; }
+.edit-toggle.active ~ .edit-hint{ opacity:1; }
+
+/* footer signature on title/closing */
+.sig{ position:absolute; left:150px; bottom:96px; z-index:2; font-family:var(--font-mono); font-size:22px;
+    color:var(--muted); letter-spacing:0.08em; }
+.sig b{ color:var(--paper); }
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="laser" id="laser"></div>
+
+<div class="deck-viewport">
+  <main class="deck-stage" id="deckStage">
+
+    <!-- === SLIDE 1 — TITLE === -->
+    <section class="slide title-slide active" data-label="Cold Open">
+      <div class="wrap" style="flex-direction:row; align-items:center; gap:90px; padding-right:120px;">
+        <div style="flex:1;">
+          <span class="kicker reveal" style="--d:.05s">~/.claude/skills/frontend-slides</span>
+          <h1 class="title reveal" style="--d:.15s">The&nbsp;Deck<br>That&nbsp;Built<br><em style="font-family:var(--font-display);font-style:italic;font-weight:401;color:var(--signal);">Itself.</em></h1>
+          <p class="lead reveal" style="--d:.5s; margin-top:44px;">A Claude&nbsp;Code skill — <strong>installed, hot-loaded, and invoked</strong> to generate the very slides you're looking at.</p>
+        </div>
+        <div class="ring-wrap reveal-s" style="--d:.4s">
+          <div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>
+          <div class="ring-core"><span class="glyph">↻</span><span class="sub">recursion</span></div>
+        </div>
+      </div>
+      <div class="sig reveal" style="--d:.8s">Generated live by <b>Claude&nbsp;Code</b> · frontend-slides skill · <b>az</b></div>
+    </section>
+
+    <!-- === SLIDE 2 — THE HOOK === -->
+    <section class="slide" data-label="The Premise">
+      <div class="wrap">
+        <span class="kicker reveal">No mockups · no stock deck</span>
+        <p class="statement reveal" style="--d:.15s">Everything here was made by the <span class="hl">very thing</span> it describes —
+          <span class="spoiler" id="spoiler"><span class="tap">[click]</span><span class="hidden hl2">yes, including this sentence.</span></span>
+        </p>
+        <p class="lead reveal" style="--d:.4s; margin-top:50px;">Watch the loop close in twelve slides.</p>
+      </div>
+    </section>
+
+    <!-- === SLIDE 3 — WHAT IS A SKILL === -->
+    <section class="slide" data-label="What Is a Skill">
+      <div class="wrap">
+        <span class="kicker reveal">00 / Definition</span>
+        <h2 class="head reveal" style="--d:.12s">A skill is <em>taste,</em><br>frozen.</h2>
+        <p class="lead reveal" style="--d:.4s; margin-top:46px;">Your expertise, your workflow, your standards — packaged into something an <strong>agent</strong> can run on demand. Which means the punchline comes last:</p>
+        <p class="reveal" style="--d:.6s; font-family:var(--font-mono); font-size:30px; color:var(--signal); margin-top:30px; letter-spacing:0.04em;">$ you don't <span style="color:var(--paper)">start</span> with a skill — you <span style="color:var(--mint)">end</span> with one.</p>
+      </div>
+    </section>
+
+    <!-- === SLIDE 4 — STEP 01 INSTALL === -->
+    <section class="slide" data-label="01 · Install">
+      <div class="bignum reveal-s">1</div>
+      <div class="wrap">
+        <span class="kicker reveal">01 / Install</span>
+        <h2 class="head reveal" style="--d:.12s; margin-bottom:46px;">Clone it into<br>your own hands.</h2>
+        <div class="term reveal" style="--d:.3s">
+          <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="tt">bash — ~/.claude/skills</span></div>
+          <div class="term-body">
+<div class="ln"><span class="prompt">$</span> git clone <span class="flag">--depth 1</span> \</div>
+<div class="ln">    https://github.com/zarazhangrui/<span class="path">frontend-slides</span>.git</div>
+<div class="ln"><span class="cmt"># → lands in personal scope, yours on every project</span></div>
+<div class="ln"><span class="ok">✓</span> SKILL.md detected<span class="cursor"></span></div>
+          </div>
+        </div>
+        <p class="note reveal" style="--d:.55s"><span class="pin">▟</span> Personal scope = <b style="color:var(--paper)">~/.claude/skills</b> — not tied to one repo, available everywhere.</p>
+      </div>
+    </section>
+
+    <!-- === SLIDE 5 — STEP 02 HOT-LOAD === -->
+    <section class="slide" data-label="02 · Hot-Load">
+      <div class="bignum reveal-s">2</div>
+      <div class="wrap">
+        <span class="kicker reveal">02 / Hot-Load</span>
+        <h2 class="head reveal" style="--d:.12s; margin-bottom:46px;">No restart. The<br>agent just <em>notices.</em></h2>
+        <div class="term reveal" style="--d:.3s">
+          <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="tt">claude-code — session (still alive)</span></div>
+          <div class="term-body">
+<div class="ln"><span class="prompt">&gt;</span> /reload-plugins</div>
+<div class="ln"><span class="dim">rescanning skill registry…</span></div>
+<div class="ln"><span class="ok">✓</span> <span class="path">frontend-slides</span> <span class="dim">now available</span> — no exit required<span class="cursor"></span></div>
+          </div>
+        </div>
+        <p class="note reveal" style="--d:.55s"><span class="pin">▟</span> Drop the folder in, trigger a rescan, keep working. The session never breaks.</p>
+      </div>
+    </section>
+
+    <!-- === SLIDE 6 — STEP 03 INVOKE === -->
+    <section class="slide" data-label="03 · Invoke">
+      <div class="bignum reveal-s">3</div>
+      <div class="wrap">
+        <span class="kicker reveal">03 / Invoke</span>
+        <h2 class="head reveal" style="--d:.12s; margin-bottom:46px;">Then you<br>just <em>ask.</em></h2>
+        <div class="chat reveal" style="--d:.3s">
+          <div class="who">you →</div>
+          <div class="msg">"Use <b>frontend-slides</b> to build a deck about installing this skill and invoking it… to build this deck."</div>
+        </div>
+        <p class="note reveal" style="--d:.55s"><span class="pin">▟</span> The skill takes the wheel: it asks for context, designs, generates, screenshots itself, and fixes its own mistakes.</p>
+      </div>
+    </section>
+
+    <!-- === SLIDE 7 — THE WORKFLOW SPINE === -->
+    <section class="slide" data-label="The Workflow">
+      <div class="wrap center">
+        <span class="kicker bare reveal" style="margin-bottom:54px;">What the skill does behind the curtain</span>
+        <div class="flow">
+          <div class="step reveal-l" style="--d:.1s"><div class="n">→ 01</div><div class="t">Discover</div><div class="d">Four questions — purpose, length, content, density — so it never guesses.</div><span class="arrow">›</span></div>
+          <div class="step reveal-l" style="--d:.25s"><div class="n">→ 02</div><div class="t">Style</div><div class="d">Three covers, shown not described. You pick a direction before a full build.</div><span class="arrow">›</span></div>
+          <div class="step reveal-l" style="--d:.4s"><div class="n">→ 03</div><div class="t">Generate</div><div class="d">One self-contained HTML file. Fixed 16:9 stage, inline CSS &amp; JS, zero deps.</div><span class="arrow">›</span></div>
+          <div class="step reveal-l" style="--d:.55s"><div class="n">→ 04</div><div class="t">Verify</div><div class="d">Render, screenshot, catch overflow &amp; slop, correct — then deliver.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- === SLIDE 8 — ANTI-SLOP === -->
+    <section class="slide" data-label="The One Rule">
+      <div class="wrap">
+        <span class="kicker reveal">The one rule</span>
+        <h2 class="head reveal" style="--d:.12s; font-size:150px;">No <em>slop.</em></h2>
+        <p class="lead reveal" style="--d:.4s; margin-top:40px;">Distinctive type over Inter. A committed palette over timid gradients. Real motion over decoration. The skill is built to <strong>resist its own averages</strong> —</p>
+        <p class="reveal" style="--d:.6s; font-family:var(--font-display); font-style:italic; font-weight:401; font-size:46px; color:var(--signal); margin-top:26px;">the exact rule that shaped this deck.</p>
+      </div>
+    </section>
+
+    <!-- === SLIDE 9 — SHOW DON'T TELL === -->
+    <section class="slide" data-label="Show, Don't Tell">
+      <div class="wrap">
+        <span class="kicker reveal">Show, don't tell</span>
+        <h2 class="head reveal" style="--d:.12s; font-size:88px; margin-bottom:36px;">Three covers. You point.<br>Then it builds the rest.</h2>
+        <div class="swatches">
+          <div class="sw sw1 chosen reveal-s" style="--d:.3s"><span class="pick">✓</span><span class="lab">EMBER / SERIF</span></div>
+          <div class="sw sw2 reveal-s" style="--d:.42s"><span class="lab">TIDE / MINT</span></div>
+          <div class="sw sw3 reveal-s" style="--d:.54s"><span class="lab">CARBON / GRID</span></div>
+        </div>
+        <p class="note reveal" style="--d:.7s"><span class="pin">▟</span> Most people can't name a style — but everyone can <b style="color:var(--paper)">point</b> at one. Lock the direction before burning tokens on a full deck.</p>
+      </div>
+    </section>
+
+    <!-- === SLIDE 10 — THE META LOOP === -->
+    <section class="slide" data-label="The Loop Closes">
+      <div class="wrap center">
+        <span class="kicker bare reveal" style="margin-bottom:30px;">The loop closes</span>
+        <div class="loop reveal-s" style="--d:.2s">
+          <svg viewBox="0 0 920 560">
+            <defs><marker id="ah" markerWidth="12" markerHeight="12" refX="8" refY="4" orient="auto"><path class="arrowhead" d="M0,0 L9,4 L0,8 Z"/></marker></defs>
+            <path class="edge" d="M300,90 Q460,40 620,90" marker-end="url(#ah)"/>
+            <path class="edge" d="M740,170 Q800,360 540,470" marker-end="url(#ah)"/>
+            <path class="edge" d="M380,470 Q120,360 180,170" marker-end="url(#ah)"/>
+          </svg>
+          <div class="node nA"><div class="nh">The Skill</div><div class="ns">taste, frozen</div></div>
+          <div class="node nB"><div class="nh">This Deck</div><div class="ns">the output</div></div>
+          <div class="node nC"><div class="nh">…about the Skill</div><div class="ns">the subject</div></div>
+        </div>
+        <p class="lead reveal center" style="--d:.5s; margin-top:24px; text-align:center;">The output <strong>describes</strong> the process that produced it. That's not a gimmick — it's the whole pitch.</p>
+      </div>
+    </section>
+
+    <!-- === SLIDE 11 — WHY HTML === -->
+    <section class="slide" data-label="Native Tongue">
+      <div class="wrap">
+        <span class="qmark reveal">“</span>
+        <p class="quote reveal" style="--d:.15s">If Markdown is the model's native language on the <span class="k">input</span> side, then HTML is its native language on the <span class="k">output</span> side.</p>
+        <p class="lead reveal" style="--d:.45s; margin-top:38px;">Markdown is friendly to the model. HTML is friendly to <strong>both of you</strong> — so the model gets to use its full front-end muscle, and you get a website instead of a wall of text.</p>
+        <p class="qby reveal" style="--d:.6s">— the idea behind the skill</p>
+      </div>
+    </section>
+
+    <!-- === SLIDE 12 — CLOSING === -->
+    <section class="slide" data-label="You End With a Skill">
+      <div class="wrap center">
+        <span class="kicker bare reveal" style="margin-bottom:30px;">Everything is code · even this</span>
+        <h2 class="statement reveal center" style="--d:.12s; text-align:center; font-size:128px;">You <span class="hl">end</span><br>with a skill.</h2>
+        <p class="lead reveal center" style="--d:.45s; text-align:center; margin-top:46px;">Make the thing once, by hand and by taste. Iterate until it clears your bar. Then freeze the workflow — and let the agent run it for everyone.</p>
+        <div class="ring-wrap reveal-s" style="--d:.55s; width:300px; height:300px; margin-top:50px;">
+          <div class="ring"></div><div class="ring r2"></div>
+          <div class="ring-core"><span class="glyph" style="font-size:52px;">↻</span></div>
+        </div>
+      </div>
+      <div class="sig reveal" style="--d:.8s; left:50%; transform:translateX(-50%); text-align:center;">github.com/zarazhangrui/<b>frontend-slides</b></div>
+    </section>
+
+  </main>
+</div>
+
+<!-- DECK CHROME -->
+<div class="nav-dots" id="navDots"></div>
+<div class="counter" id="counter"><b>01</b> / 12</div>
+
+<!-- INLINE EDIT -->
+<div class="edit-hotzone" id="editHotzone"></div>
+<button class="edit-toggle" id="editToggle" title="Edit mode (E)">✏️</button>
+<span class="edit-hint">click any text · Ctrl+S to save · E to exit</span>
+
+<script>
+/* ===========================================
+   SLIDE PRESENTATION CONTROLLER
+   Fixed 16:9 stage scaling + navigation + chrome
+   =========================================== */
+class SlidePresentation{
+    constructor(){
+        this.slides=[...document.querySelectorAll('.slide')];
+        this.stage=document.getElementById('deckStage');
+        this.current=0;
+        this.buildDots();
+        this.scaleStage();
+        window.addEventListener('resize',()=>this.scaleStage());
+        this.bindNav();
+        this.show(0);
+    }
+    scaleStage(){
+        const f=Math.min(window.innerWidth/1920, window.innerHeight/1080);
+        const x=(window.innerWidth-1920*f)/2, y=(window.innerHeight-1080*f)/2;
+        this.stage.style.transform=`translate(${x}px, ${y}px) scale(${f})`;
+    }
+    buildDots(){
+        const c=document.getElementById('navDots');
+        this.slides.forEach((s,i)=>{
+            const d=document.createElement('div'); d.className='dt';
+            d.innerHTML=`<span class="lbl">${String(i+1).padStart(2,'0')} · ${s.dataset.label||''}</span>`;
+            d.addEventListener('click',()=>this.show(i));
+            c.appendChild(d);
+        });
+        this.dots=[...c.children];
+    }
+    show(i){
+        this.current=Math.max(0,Math.min(i,this.slides.length-1));
+        this.slides.forEach((s,n)=>{ const on=n===this.current; s.classList.toggle('active',on); s.classList.toggle('visible',on); });
+        this.dots.forEach((d,n)=>d.classList.toggle('on',n===this.current));
+        const pct=this.slides.length>1? this.current/(this.slides.length-1):1;
+        document.getElementById('progress').style.width=(pct*100)+'%';
+        document.getElementById('counter').innerHTML=`<b>${String(this.current+1).padStart(2,'0')}</b> / ${String(this.slides.length).padStart(2,'0')}`;
+    }
+    next(){ this.show(this.current+1); }
+    prev(){ this.show(this.current-1); }
+    bindNav(){
+        document.addEventListener('keydown',(e)=>{
+            if(document.body.classList.contains('editing')) return;
+            if(['ArrowRight','ArrowDown',' ','PageDown'].includes(e.key)){ e.preventDefault(); this.next(); }
+            else if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)){ e.preventDefault(); this.prev(); }
+            else if(e.key==='Home'){ this.show(0); } else if(e.key==='End'){ this.show(this.slides.length-1); }
+        });
+        let wheelLock=false;
+        window.addEventListener('wheel',(e)=>{
+            if(wheelLock||Math.abs(e.deltaY)<24) return; wheelLock=true;
+            e.deltaY>0? this.next():this.prev();
+            setTimeout(()=>wheelLock=false,700);
+        },{passive:true});
+        let sx=0,sy=0;
+        window.addEventListener('touchstart',(e)=>{ sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true});
+        window.addEventListener('touchend',(e)=>{
+            const dx=e.changedTouches[0].clientX-sx, dy=e.changedTouches[0].clientY-sy;
+            if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>50){ dx<0? this.next():this.prev(); }
+            else if(Math.abs(dy)>60){ dy<0? this.next():this.prev(); }
+        },{passive:true});
+    }
+}
+const deck=new SlidePresentation();
+
+/* === LASER POINTER === */
+const laser=document.getElementById('laser');
+let lt=null;
+window.addEventListener('mousemove',(e)=>{
+    laser.style.left=e.clientX+'px'; laser.style.top=e.clientY+'px'; laser.style.opacity='1';
+    clearTimeout(lt); lt=setTimeout(()=>laser.style.opacity='0',2200);
+});
+
+/* === CLICK-TO-REVEAL EASTER EGG === */
+const sp=document.getElementById('spoiler');
+if(sp) sp.addEventListener('click',()=>sp.classList.toggle('open'));
+
+/* === INLINE EDITING (JS hover w/ 400ms grace) === */
+const editor={
+    isActive:false,
+    toggle(){
+        this.isActive=!this.isActive;
+        document.body.classList.toggle('editing',this.isActive);
+        const btn=document.getElementById('editToggle');
+        btn.classList.toggle('active',this.isActive);
+        document.querySelectorAll('.slide [contenteditable], .wrap *').forEach(()=>{});
+        // make headings/paragraphs editable in edit mode
+        document.querySelectorAll('.title,.head,.statement,.lead,.note,.quote,.msg,.term-body,.t,.d').forEach(el=>{
+            el.contentEditable=this.isActive;
+        });
+        if(this.isActive){ try{ localStorage.setItem('deck-edit','1'); }catch(e){} }
+    }
+};
+document.getElementById('editToggle').addEventListener('click',()=>editor.toggle());
+const hz=document.getElementById('editHotzone'), et=document.getElementById('editToggle');
+let hideT=null;
+const showBtn=()=>{ clearTimeout(hideT); et.classList.add('show'); };
+const hideBtn=()=>{ hideT=setTimeout(()=>{ if(!editor.isActive) et.classList.remove('show'); },400); };
+hz.addEventListener('mouseenter',showBtn); hz.addEventListener('mouseleave',hideBtn);
+et.addEventListener('mouseenter',showBtn);  et.addEventListener('mouseleave',hideBtn);
+hz.addEventListener('click',()=>editor.toggle());
+document.addEventListener('keydown',(e)=>{
+    if((e.key==='e'||e.key==='E') && !e.target.isContentEditable){ editor.toggle(); }
+    if((e.ctrlKey||e.metaKey) && e.key==='s'){ e.preventDefault();
+        try{ localStorage.setItem('deck-html',document.querySelector('.deck-stage').innerHTML); }catch(err){}
+        const b=document.getElementById('editToggle'); b.textContent='💾'; setTimeout(()=>b.textContent='✏️',900);
+    }
+});
+</script>
+</body>
+</html>

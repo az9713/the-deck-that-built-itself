@@ -1,0 +1,7 @@
+# local source notes (kept out of the repo)
+.ignore/
+*.txt
+
+# os / editor cruft
+.DS_Store
+*.log
